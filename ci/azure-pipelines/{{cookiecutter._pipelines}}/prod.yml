@@ -43,13 +43,14 @@ stages:
                 --tenant $(PRODUCTION_TENANT_ID)
 
               echo 'Writing deployment config'
-              deployConfig="azure:
+              mkdir -p ./conf/local
+              cat > ./conf/local/credentials.yml << EOL
+              azure:
                 deploy:
                   compute: $(PRODUCTION_COMPUTE)
                   resource_group: $(PRODUCTION_RESOURCE_GROUP)
                   workspace: $(PRODUCTION_WORKSPACE)
-              "
-              echo $deployConfig >> ./conf/local/credentials.yml
+              EOL
             displayName: Authenticate
           - bash: |
               msg='$(Build.SourceVersionMessage)'
@@ -73,10 +74,10 @@ stages:
           - checkout: self
             persistCredentials: true
           - bash: |
-              find ./conf -type f -exec sed -i 's/cached:\s*true/cached: false/ig' {} +
+              find ./conf/base -type f -exec sed -i 's/cached:\s*true/cached: false/ig' {} +
               git config --global user.email "projetaaimlops@gmail.com"
               git config --global user.name "ProjetaAi"
-              git add .
+              git add ./conf/base
               git commit -m "Correcting cached status [skip ci]"
               git push origin HEAD:$(Build.SourceBranchName)
             displayName: 'Recommit with false cached'
