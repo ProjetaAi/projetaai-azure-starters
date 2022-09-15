@@ -2,7 +2,7 @@ trigger:
  branches:
    include:
      - develop
-     - feature/*
+     - experiment/*
 
 stages:
   - stage: Validate
@@ -11,16 +11,41 @@ stages:
         pool:
           vmImage: 'ubuntu-latest'
         steps:
+          # Clone repo and validate it
+          - checkout: self
+            persistCredentials: true
+            displayName: 'Checkout repo'
+          - bash: |
+              files=(
+                "./src/requirements.txt"
+                "./src/requirements-test.txt"
+                "./.pre-commit-config.yaml"
+              )
+              for file in "${files[@]}"; do
+                if !(test -f "${file}"); then
+                  echo "Missing '${file}'"
+                  exit 1
+                fi
+              done
+            displayName: 'Check required files'
+
+          # Linting
           - task: UsePythonVersion@0
             inputs:
               versionSpec: '{{cookiecutter.__python_version}}'
               addToPath: true
               architecture: 'x64'
-          - script: |
+            displayName: 'Install python'
+          - bash: |
               pip install pre-commit
               pre-commit run --all-files
             displayName: 'Lint code'
+
+          # Testing
           - script: |
-              pip install -e .[test]
+              pip install -r ./src/requirements.txt
+            displayName: Install requirements
+          - bash: |
+              pip install -r ./src/requirements.test.txt
               pytest
             displayName: 'Run tests'
