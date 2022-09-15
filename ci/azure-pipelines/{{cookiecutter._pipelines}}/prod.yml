@@ -3,85 +3,129 @@ trigger:
    include:
      - main
      - master
+     - mlops
 
 stages:
-  - stage: Validate
-    jobs:
-      - job: LintNTest
-        pool:
-          vmImage: 'ubuntu-latest'
-        steps:
-          - task: UsePythonVersion@0
-            inputs:
-              versionSpec: '{{cookiecutter.__python_version}}'
-              addToPath: true
-              architecture: 'x64'
-          - bash: |
-              #pip install pre-commit
-              #pre-commit run --all-files
-            displayName: 'Lint code'
-          - bash: |
-              #pip install -e .[test]
-              #pytest
-            displayName: 'Run tests'
   - stage: Deploy
     jobs:
       - job: Update
         pool:
           vmImage: 'ubuntu-latest'
         steps:
-          - task: UsePythonVersion@0
-            inputs:
-              versionSpec: '{{cookiecutter.__python_version}}'
-              addToPath: true
-              architecture: 'x64'
+          # Get tags from commit message
           - bash: |
-              echo 'Logging into Azure'
-              az login --service-principal \
-                -u $(PRODUCTION_CLIENT_ID) \
-                -p $(PRODUCTION_CLIENT_SECRET) \
-                --tenant $(PRODUCTION_TENANT_ID)
+              msg='$(Build.SourceVersionMessage)'
+              regex="\[pipeline=([^]]+)]"
 
-              echo 'Writing deployment config'
-              mkdir -p ./conf/local
-              cat > ./conf/local/credentials.yml << EOL
-              azure:
-                deploy:
-                  compute: $(PRODUCTION_COMPUTE)
-                  resource_group: $(PRODUCTION_RESOURCE_GROUP)
-                  workspace: $(PRODUCTION_WORKSPACE)
-              EOL
-            displayName: Authenticate
+              if [[ $msg =~ $regex ]]
+              then
+                strpipes="${BASH_REMATCH[1]}"
+                IFS="," read -a pipes <<< $strpipes
+                echo "##vso[task.setvariable variable=pipes;]${pipes[@]}"
+              else
+                echo "No pipelines to update.
+              Please, specify pipelines in the commit message.
+              Example: git commit -m 'added feature x [pipeline=ds,de]'"
+                exit 1
+              fi
+            displayName: Get pipeline names
           - bash: |
               msg='$(Build.SourceVersionMessage)'
               tag='[ratify]'
-                
+
               if [[ "$msg" == *"$tag"* ]]; then
                 echo '##vso[task.setvariable variable=ratify;]true'
               else
                 echo '##vso[task.setvariable variable=ratify;]false'
               fi
             displayName: Check for ratify
+
+          # Clone repo and validate it
+          - checkout: self
+            persistCredentials: true
+            displayName: 'Checkout repo'
+          - bash: |
+              files=(
+                "./src/requirements.txt"
+                "./src/requirements-test.txt"
+                "./.pre-commit-config.yaml"
+              )
+              for file in "${files[@]}"; do
+                if !(test -f "${file}"); then
+                  echo "Missing '${file}'"
+                  exit 1
+                fi
+              done
+            displayName: 'Check required files'
+
+          # Linting
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '{{cookiecutter.__python_version}}'
+              addToPath: true
+              architecture: 'x64'
+            displayName: 'Install python'
+          - bash: |
+              pip install pre-commit
+              pre-commit run --all-files
+            displayName: 'Lint code'
+
+          # Testing
           - script: |
               pip install -r ./src/requirements.txt
             displayName: Install requirements
           - bash: |
-              kedro pipeline create azure
-              kedro pipeline azure publish
-              kedro run azure
+              pip install -r ./src/requirements.test.txt
+              pytest
+            displayName: 'Run tests'
+
+          # Authentication
+          - bash: |
+              echo 'Writing deployment config'
+              mkdir -p ./conf/local
+              echo "azure:
+                deploy:
+                  compute: $(PRODUCTION_COMPUTE)
+                  resource_group: $(PRODUCTION_RESOURCE_GROUP)
+                  workspace: $(PRODUCTION_WORKSPACE)
+              " >> ./conf/local/credentials.yml
+            displayName: Configure project
+
+          # Ratifying
+          - task: AzureCLI@2
             displayName: 'Ratify production'
             condition: eq(variables['ratify'], 'true')
-          - checkout: self
-            persistCredentials: true
+            inputs:
+              azureSubscription: '{{cookiecutter.production_service_connection}}'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                pipes=($(pipes))
+                for pipe in "${pipes[@]}"
+                do
+                  kedro pipeline create azure --pipeline $pipe --branch $(Build.SourceBranchName)
+                  kedro run azure --pipeline $pipe --branch $(Build.SourceBranchName)
+                done
+
+          # Updating production
           - bash: |
-              find ./conf/base -type f -exec sed -i 's/cached:\s*true/cached: false/ig' {} +
+              find ./conf -type f -exec sed -i 's/cached:\s*true/cached: false/ig' {} +
               git config --global user.email "projetaaimlops@gmail.com"
               git config --global user.name "ProjetaAi"
-              git add ./conf/base
+              git add .
               git commit -m "Correcting cached status [skip ci]"
               git push origin HEAD:$(Build.SourceBranchName)
             displayName: 'Recommit with false cached'
-          - bash: |
-              kedro pipeline create azure
-              kedro pipeline azure publish
+          - task: AzureCLI@2
+            inputs:
+              azureSubscription: '{{cookiecutter.production_service_connection}}'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                pipes=($(pipes))
+                for pipe in "${pipes[@]}"
+                do
+                  kedro pipeline create azure --pipeline $pipe --branch $(Build.SourceBranchName)
+                  kedro pipeline azure publish --pipeline $pipe --branch $(Build.SourceBranchName)
+                done
             displayName: Update production

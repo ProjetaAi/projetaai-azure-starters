@@ -1,4 +1,5 @@
 {
 	"_pipelines": "azure-pipelines",
-	"__python_version": "{{cookiecutter.__python_version}}"
+	"__python_version": "{{cookiecutter.__python_version}}",
+	"production_service_connection": "Azure Classic service connection with access to the production subscription"
 }
