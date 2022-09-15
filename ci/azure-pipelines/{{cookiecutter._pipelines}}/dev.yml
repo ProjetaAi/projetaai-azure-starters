@@ -46,6 +46,6 @@ stages:
               pip install -r ./src/requirements.txt
             displayName: Install requirements
           - bash: |
-              pip install -r ./src/requirements.test.txt
+              pip install -r ./src/requirements-test.txt
               pytest
             displayName: 'Run tests'
