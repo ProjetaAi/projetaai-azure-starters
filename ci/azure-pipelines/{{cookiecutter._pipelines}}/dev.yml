@@ -29,6 +29,12 @@ stages:
               done
             displayName: 'Check required files'
 
+          # Install requirements
+          - script: |
+              pip install -r ./src/requirements.txt
+              pip install -r ./src/requirements-test.txt
+            displayName: Install requirements
+
           # Linting
           - task: UsePythonVersion@0
             inputs:
@@ -42,10 +48,6 @@ stages:
             displayName: 'Lint code'
 
           # Testing
-          - script: |
-              pip install -r ./src/requirements.txt
-            displayName: Install requirements
           - bash: |
-              pip install -r ./src/requirements-test.txt
               pytest
             displayName: 'Run tests'
