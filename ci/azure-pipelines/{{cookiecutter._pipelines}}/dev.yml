@@ -29,6 +29,13 @@ stages:
               done
             displayName: 'Check required files'
 
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '{{cookiecutter.__python_version}}'
+              addToPath: true
+              architecture: 'x64'
+            displayName: 'Install python'
+
           # Install requirements
           - script: |
               pip install -r ./src/requirements.txt
@@ -36,12 +43,6 @@ stages:
             displayName: Install requirements
 
           # Linting
-          - task: UsePythonVersion@0
-            inputs:
-              versionSpec: '{{cookiecutter.__python_version}}'
-              addToPath: true
-              architecture: 'x64'
-            displayName: 'Install python'
           - bash: |
               pip install pre-commit
               pre-commit run --all-files
